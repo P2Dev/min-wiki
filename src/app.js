@@ -6,6 +6,8 @@ import { Store, Problem, fail } from './store.js';
 import { renderMarkdown, layout, indexContent, articleContent, escape, projectHome, pageUrl, editorContent, projectsContent } from './render.js';
 import { createAuth, can } from './auth.js';
 import { readConfig } from './config.js';
+import { randomUUID } from 'node:crypto';
+import { syncCloudProject } from './cloud-projects.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const describe = (page, project = 'default') => ({ ...page, project, url: pageUrl(project, page.slug), ...renderMarkdown(page.markdown, page.slug, project) });
@@ -39,6 +41,24 @@ export async function createApp({ dataDir = process.env.DATA_DIR || path.join(ro
   app.get('/favicon.ico', (request, response) => response.status(204).end());
   app.get('/health', (request, response) => response.json({ status: 'ok' }));
   auth.routes(app);
+  const syncLimits = new Map();
+  app.put('/api/v1/integrations/cloud/projects/:id',async (request,response,next) => {
+    const token = /^Bearer (mw_[A-Za-z0-9_-]{43})$/i.exec(request.get('authorization') || '')?.[1];
+    const key = await store.authenticate(token);
+    if (!key) fail(401,'invalid_credentials','An active integration key is required.');
+    if (key.role !== 'projects:sync') fail(403,'insufficient_scope','Use a dedicated projects:sync key.');
+    const now=Date.now();for(const [id,limit] of syncLimits)if(limit.until<=now)syncLimits.delete(id);
+    const limit=syncLimits.get(key.id)||{count:0,until:now+60000};syncLimits.set(key.id,limit);
+    if(++limit.count>120){response.set('Retry-After','60');fail(429,'rate_limited','Retry after 60 seconds.');}
+    response.set('X-Request-Id',randomUUID());
+    if (!request.is('application/json')) fail(415,'invalid_content_type','Use application/json.');
+    next();
+  },express.json({limit:'128kb'}),async (request,response) => {
+    const token=/^Bearer (\S+)$/i.exec(request.get('authorization'))[1];
+    const result=await syncCloudProject(store,token,request.body,request.params.id,request.get('idempotency-key'),config.publicUrl);
+    if(result.replayed)response.set('Idempotency-Replayed','true');
+    response.status(result.status).json(result.data);
+  });
   app.use(async (request, response, next) => {
     const isApi = /^\/api(?:\/|$)/i.test(request.path);
     if (isApi) {

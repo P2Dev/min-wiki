@@ -71,9 +71,12 @@ export class Store {
     return project;
   }
   async forProject(slug = 'default') {
-    await this.project(slug);
+    const project = await this.project(slug);
     if (slug === 'default') return this;
     const directory = path.join(this.projectsDirectory, slug);
+    const parent = await lstat(this.projectsDirectory);
+    if (!parent.isDirectory() || parent.isSymbolicLink()) fail(404,'project_not_found','Project storage is unavailable.');
+    if (project.cloud) await mkdir(directory,{mode:0o700}).catch(error => { if(error.code !== 'EEXIST') throw error; });
     for (const location of [this.projectsDirectory, directory]) {
       const info = await lstat(location);
       if (!info.isDirectory() || info.isSymbolicLink()) fail(404, 'project_not_found', 'This project is not available.');
@@ -104,6 +107,7 @@ export class Store {
   deleteProject(slug) {
     if (slug === 'default') fail(409, 'default_project', 'The General project cannot be deleted.');
     return this.serialize(async () => {
+      if ((await this.project(slug)).cloud) fail(409,'cloud_project','Cloud-linked projects retain their identity and pages; archive them in Cloud instead.');
       const scoped = await this.forProject(slug);
       if ((await readdir(scoped.pages)).length) fail(409, 'project_not_empty', 'Delete or move all files before deleting this project.');
       const projects = (await this.projects()).filter(item => item.slug !== 'default' && item.slug !== slug);
@@ -181,16 +185,17 @@ export class Store {
   async authenticate(token) {
     if (typeof token !== 'string' || !/^mw_[A-Za-z0-9_-]{43}$/.test(token)) return null;
     const hash = Buffer.from(digest(token), 'hex');
-    return (await this.keys()).find(key => timingSafeEqual(hash, Buffer.from(key.hash, 'hex'))) ?? null;
+    return (await this.keys()).find(key => (!key.expiresAt || Date.parse(key.expiresAt)>Date.now()) && timingSafeEqual(hash, Buffer.from(key.hash, 'hex'))) ?? null;
   }
   issueKey(name, role) {
     if (typeof name !== 'string' || !name.trim() || name.length > 80) fail(400, 'invalid_name', 'Provide a key name of 1–80 characters.');
-    if (!['read', 'write', 'admin'].includes(role)) fail(400, 'invalid_role', 'Key role must be read, write or admin.');
+    if (!['read', 'write', 'admin','projects:sync'].includes(role)) fail(400, 'invalid_role', 'Choose read, write, admin or projects:sync.');
     return this.serialize(async () => {
       const keys = await this.keys();
       if (keys.length >= 100) fail(409, 'key_limit', 'Revoke unused keys before creating more (limit 100).');
       const secret = `mw_${randomBytes(32).toString('base64url')}`;
       const key = { id: randomUUID(), name: name.trim(), role, createdAt: new Date().toISOString(), hash: digest(secret) };
+      if (role === 'projects:sync') key.expiresAt = new Date(Date.now()+90*86400000).toISOString();
       await atomicWrite(this.keysFile, JSON.stringify([...keys, key], null, 2) + '\n');
       const { hash, ...metadata } = key;
       return { ...metadata, secret };
