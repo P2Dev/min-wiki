@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { link, mkdir, open, readFile, readdir, rename, unlink } from 'node:fs/promises';
+import { link, lstat, mkdir, open, readFile, readdir, rename, rmdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 
@@ -50,9 +50,69 @@ export class Store {
     this.directory = path.resolve(directory);
     this.pages = path.join(this.directory, 'pages');
     this.keysFile = path.join(this.directory, 'keys.json');
+    this.projectsFile = path.join(this.directory, 'projects.json');
+    this.projectsDirectory = path.join(this.directory, 'projects');
     this.pending = Promise.resolve();
   }
-  async init() { await mkdir(this.pages, { recursive: true, mode: 0o700 }); }
+  async init() {
+    await mkdir(this.pages, { recursive: true, mode: 0o700 });
+    await mkdir(this.projectsDirectory, { recursive: true, mode: 0o700 });
+  }
+  async projects() {
+    let projects = [];
+    try { projects = JSON.parse(await readFile(this.projectsFile, 'utf8')); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    return [{ slug: 'default', name: 'General', description: 'Your original wiki pages.' }, ...projects];
+  }
+  async project(slug) {
+    checkSlug(slug);
+    const project = (await this.projects()).find(item => item.slug === slug);
+    if (!project) fail(404, 'project_not_found', 'This project does not exist.');
+    return project;
+  }
+  async forProject(slug = 'default') {
+    await this.project(slug);
+    if (slug === 'default') return this;
+    const directory = path.join(this.projectsDirectory, slug);
+    for (const location of [this.projectsDirectory, directory]) {
+      const info = await lstat(location);
+      if (!info.isDirectory() || info.isSymbolicLink()) fail(404, 'project_not_found', 'This project is not available.');
+    }
+    const scoped = new Store(this.directory);
+    scoped.pages = directory;
+    scoped.serialize = work => this.serialize(work);
+    return scoped;
+  }
+  createProject(slug, name, description = '') {
+    checkSlug(slug);
+    if (typeof name !== 'string' || !name.trim() || name.length > 80) fail(400, 'invalid_name', 'Provide a project name of 1–80 characters.');
+    if (typeof description !== 'string' || description.length > 280) fail(400, 'invalid_description', 'Project description must be at most 280 characters.');
+    return this.serialize(async () => {
+      const projects = await this.projects();
+      if (projects.some(item => item.slug === slug)) fail(409, 'project_exists', 'This project slug already exists.');
+      if (projects.length >= 100) fail(409, 'project_limit', 'This wiki supports at most 100 projects.');
+      if (!(await lstat(this.projectsDirectory)).isDirectory()) fail(500, 'storage_error', 'Project storage is unavailable.');
+      const directory = path.join(this.projectsDirectory, slug);
+      try { await mkdir(directory, { mode: 0o700 }); }
+      catch (error) { if (error.code === 'EEXIST') fail(409, 'project_exists', 'This project directory already exists.'); throw error; }
+      const project = { slug, name: name.trim(), description: description.trim(), createdAt: new Date().toISOString() };
+      try { await atomicWrite(this.projectsFile, JSON.stringify([...projects.slice(1), project], null, 2) + '\n'); }
+      catch (error) { await rmdir(directory); throw error; }
+      return project;
+    });
+  }
+  deleteProject(slug) {
+    if (slug === 'default') fail(409, 'default_project', 'The General project cannot be deleted.');
+    return this.serialize(async () => {
+      const scoped = await this.forProject(slug);
+      if ((await readdir(scoped.pages)).length) fail(409, 'project_not_empty', 'Delete or move all files before deleting this project.');
+      const projects = (await this.projects()).filter(item => item.slug !== 'default' && item.slug !== slug);
+      // Remove the directory first; if metadata persistence fails, recreate the empty directory.
+      await rmdir(scoped.pages);
+      try { await atomicWrite(this.projectsFile, JSON.stringify(projects, null, 2) + '\n'); }
+      catch (error) { await mkdir(scoped.pages, { mode: 0o700 }); throw error; }
+    });
+  }
   serialize(work) {
     const result = this.pending.then(work);
     this.pending = result.catch(() => {});
@@ -125,7 +185,7 @@ export class Store {
   }
   issueKey(name, role) {
     if (typeof name !== 'string' || !name.trim() || name.length > 80) fail(400, 'invalid_name', 'Provide a key name of 1–80 characters.');
-    if (!['write', 'admin'].includes(role)) fail(400, 'invalid_role', 'Key role must be write or admin.');
+    if (!['read', 'write', 'admin'].includes(role)) fail(400, 'invalid_role', 'Key role must be read, write or admin.');
     return this.serialize(async () => {
       const keys = await this.keys();
       if (keys.length >= 100) fail(409, 'key_limit', 'Revoke unused keys before creating more (limit 100).');

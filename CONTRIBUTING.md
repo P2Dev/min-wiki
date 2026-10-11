@@ -20,9 +20,12 @@ Save the administrator key printed by initialization. The development server res
 | `src/app.js` | HTTP routes, authentication middleware, validation and error responses |
 | `src/store.js` | Markdown files, atomic writes, conditional edits and key registry |
 | `src/render.js` | Markdown rendering, HTML escaping and reader templates |
+| `src/auth.js` | Access keys, Cognito verification, PKCE sign-in, sessions and CSRF |
+| `src/config.js` | Fail-closed visibility and identity-provider configuration |
 | `src/cli.js` | First-run setup and local administrator recovery |
 | `public/style.css` | Responsive reader styles |
 | `examples/` | Starter Markdown pages copied during initialization |
+| `test/access-projects.test.js` | Private-mode coverage, signed JWTs, OAuth flow, browser forms and project namespaces |
 | `test/wiki.test.js` | HTTP, filesystem, security-boundary and process integration tests |
 | `docs/` | API guide, design decisions, operations and preview |
 
@@ -38,6 +41,8 @@ Update the API guide when changing routes, request bodies, permissions, precondi
 npm run check
 npm test
 ```
+
+Cognito tests use the actual AWS verifier with local test signing keys and a simulated token endpoint. They are not a live AWS smoke test.
 
 Tests create temporary data directories and bind local HTTP servers on ephemeral ports. They require permission to listen on localhost. They do not use your running wiki, require a GitHub token, or depend on an external service. The suite exercises initialization, process restart, page operations, key roles and revocation, conflicts, unsafe Markdown, and filesystem boundaries.
 

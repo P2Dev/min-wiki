@@ -1,5 +1,7 @@
 # Architecture decisions
 
+This records the initial MVP decisions. Version 0.2 adds private mode, browser editing, Cognito sessions and project namespaces; see [the subsequent design](private-access-and-projects.md), [authentication](authentication.md), and [projects](projects.md). Initial exclusions below describe the original milestone.
+
 Research date: 2026-10-11. This is an implementation comparison for a small API-managed wiki, not a throughput benchmark. User requirements: Node.js, Markdown source files, public reading and keys for mutations.
 
 ## HTTP service

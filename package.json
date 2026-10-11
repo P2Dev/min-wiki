@@ -1,6 +1,6 @@
 {
   "name": "min-wiki",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "A small Markdown wiki with a key-protected API",
@@ -21,9 +21,10 @@
     "init": "node src/cli.js init",
     "key:create": "node src/cli.js key:create",
     "test": "node --test",
-    "check": "node --check src/app.js && node --check src/store.js && node --check src/render.js && node --check src/server.js && node --check src/cli.js"
+    "check": "node --check src/app.js && node --check src/store.js && node --check src/render.js && node --check src/server.js && node --check src/cli.js && node --check src/auth.js && node --check src/config.js"
   },
   "dependencies": {
+    "aws-jwt-verify": "^5.2.1",
     "express": "^5.3.0",
     "markdown-it": "^14.3.2"
   }

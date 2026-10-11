@@ -1,4 +1,19 @@
-# Minimal wiki MVP
+# Minimal wiki delivery status
+
+## Version 0.2: private access, Cognito and projects
+
+Implemented and locally verified on 2026-10-11. Accepted scope: integrate an existing Cognito User Pool; give every signed-in user write access; organize pages into project namespaces with shared wiki permissions. See the [approach comparison](docs/private-access-and-projects.md), [authentication setup](docs/authentication.md), and [project contract](docs/projects.md).
+
+- Whole-wiki public/private configuration protects content, titles, search, source views and APIs. Read/write/admin keys continue to work.
+- Cognito authorization code + PKCE, access-token validation, bounded server-side sessions, CSRF-protected forms, logout and optional admin-group mapping are implemented.
+- Project navigation, scoped search/links/API routes and browser create/edit forms are implemented. Original URLs and Markdown files remain the General project without migration.
+- `npm run check` and all **20 tests** pass. Tests include actual RSA verification, invalid JWT claims/signatures, OAuth denial/replay, secure cookies, credential expiry, permissions, local-key revocation, conflicts, storage isolation and compatibility.
+- Browser walkthrough passed: private redirect and preserved destination; invalid-key retry; editing and publishing; project switching by keyboard; logout; 320px login/library/editor layouts without document overflow; 800px and 1280px project navigation.
+- Browser review found and fixed login-cookie replacement by favicon redirects and form Origin suppression by the old referrer policy. Regression coverage now checks both. [Project preview](docs/projects-preview.jpg).
+
+Remaining deployment check: no live AWS pool configuration was supplied. Automated Cognito tests use a simulated token endpoint and test signing keys; verify managed login/logout and a real access token against your pool before deployment. No AWS infrastructure or application hosting is provisioned. Per-project membership, attachments and revision history remain outside this milestone.
+
+## Historical initial delivery (version 0.1)
 
 Target: deliver a locally runnable Node.js wiki with Markdown backing files, a polished public reader, and an API protected by revocable access keys for changes.
 
@@ -36,4 +51,4 @@ Limits: functional and expert UI/UX evaluation, not representative-user research
 
 Clone the repository, run `npm ci`, then `npm run init` to create `data/` and reveal your admin secret once. Run `npm start` and open `http://127.0.0.1:3000`. Runtime pages, keys, environment files, and dependencies are excluded from version control. Example pages are included as initialization templates.
 
-Next: no further work is required for the local MVP and repository-publication target. Optional future capabilities remain out of scope until requested.
+The initial local MVP and repository-publication target was completed. Version 0.2 work is described above.
