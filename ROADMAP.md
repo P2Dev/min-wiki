@@ -15,7 +15,7 @@ Confirmed: public reading; access keys for mutations; compare architectural appr
 | Comfortable public reading | Browser walkthrough at 320, 800, 1280px; search, outline, source viewer, keyboard controls | Passed |
 | Reproducible handoff | Lockfile, CLI init/re-init, start/restart tests, README and backup/recovery instructions | Passed |
 
-Current state: delivered and verified on 2026-10-11. The source and documentation are published to the private [P2Dev/min-wiki](https://github.com/P2Dev/min-wiki) repository on `main`. The initial GitHub Actions run passed installation, syntax checks and all integration tests. No application hosting was requested or performed.
+Current state: delivered and verified on 2026-10-11. The source and documentation are published to the public [P2Dev/min-wiki](https://github.com/P2Dev/min-wiki) repository on `main`. The initial GitHub Actions run passed installation, syntax checks and all integration tests. No application hosting was requested or performed.
 
 Constraints: one service process and local disk; flat page slugs; no browser editing, user accounts, revision history or attachments in this MVP. Keys are managed by CLI bootstrap and admin API. Optional later ideas do not block completion.
 
