@@ -21,7 +21,7 @@
     "init": "node src/cli.js init",
     "key:create": "node src/cli.js key:create",
     "test": "node --test",
-    "check": "node --check src/app.js && node --check src/store.js && node --check src/render.js && node --check src/server.js && node --check src/cli.js && node --check src/auth.js && node --check src/config.js"
+    "check": "node --check src/app.js && node --check src/store.js && node --check src/render.js && node --check src/server.js && node --check src/cli.js && node --check src/auth.js && node --check src/config.js && node --check src/cloud-projects.js"
   },
   "dependencies": {
     "aws-jwt-verify": "^5.2.1",

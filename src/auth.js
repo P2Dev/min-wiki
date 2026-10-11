@@ -57,7 +57,7 @@ export function createAuth(store, config, { verifier = config.cognito ? createCo
     if (typeof token !== 'string' || token.length > 16_384) return null;
     if (token.startsWith('mw_')) {
       const key = await store.authenticate(token);
-      return key ? { kind: 'key', id: key.id, name: key.name, role: key.role } : null;
+      return key && can(key,'read') ? { kind: 'key', id: key.id, name: key.name, role: key.role } : null;
     }
     if (!verifier) return null;
     try {
@@ -80,7 +80,7 @@ export function createAuth(store, config, { verifier = config.cognito ? createCo
     if (!result) return null;
     if (result.identity.kind === 'key') {
       const key = (await store.keys()).find(item => item.id === result.identity.id);
-      if (!key) { sessions.delete(hash(cookie(request, sessionCookie))); return null; }
+      if (!key || !can(key,'read') || (key.expiresAt && Date.parse(key.expiresAt)<=now())) { sessions.delete(hash(cookie(request, sessionCookie))); return null; }
       result.identity = { kind: 'key', id: key.id, name: key.name, role: key.role };
     }
     return result;
@@ -112,7 +112,7 @@ export function createAuth(store, config, { verifier = config.cognito ? createCo
       if (!equal(request.body?.csrf, flow.csrf)) fail(403, 'invalid_csrf', 'This form expired. Open the sign-in page and try again.');
       if (request.get('origin') && request.get('origin') !== config.publicUrl) fail(403, 'invalid_origin', 'Submit this form from the wiki itself.');
       const key = await store.authenticate(request.body?.key);
-      if (!key) {
+      if (!key || !can(key,'read')) {
         const retry = transaction({ query: { next: flow.next }, headers: request.headers }, response);
         return response.status(401).type('html').send(loginPage(retry, 'That access key is invalid or has been revoked. Try again.'));
       }
