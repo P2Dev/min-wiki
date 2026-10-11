@@ -20,7 +20,9 @@ Default listener: `127.0.0.1:3000`. Set `HOST` and `PORT` as needed. `GET /healt
 
 Run the process as an unprivileged service user under your platform's process supervisor. Place a reverse proxy with HTTPS in front of it, keeping the Node listener private where possible. Configure request-rate and request-size limits at the proxy, forward the `Authorization`, `If-Match`, and `If-None-Match` headers, and do not log authorization values or request bodies containing secrets.
 
-The application limits Markdown source to 256 KiB. JSON request bodies allow up to 300 KiB for encoding overhead. Proxy limits should accommodate that overhead without accepting unbounded uploads. Responses use `Cache-Control: no-store`; do not override it for key-management responses.
+For Cognito or browser form use behind a proxy, set `PUBLIC_URL` to the external HTTPS origin. Configure User Pool callbacks as described in [authentication](authentication.md). Set `WIKI_VISIBILITY=private` when content must require sign-in; access is shared across projects. Browser sessions are in memory and a restart signs users out.
+
+The application limits Markdown source to 256 KiB. JSON request bodies allow up to 300 KiB for encoding overhead; browser editor forms allow 800 KiB for URL encoding. Proxy limits should accommodate that overhead without accepting unbounded uploads. Responses use `Cache-Control: no-store`; do not override it for key-management responses.
 
 There is no shared storage or cluster mode. Use one process per data directory. No automatic hosting or TLS configuration is supplied by this repository.
 
@@ -35,7 +37,7 @@ Create a replacement admin before revoking the final administrator. If all admin
 
 ## Backup and restore
 
-Stop the server before copying the entire data directory. Preserve `pages/` and `keys.json`; together they contain page content, active key hashes and key metadata. Store backups with restricted permissions. The application does not implement revision history, trash or automatic backup retention.
+Stop the server before copying the entire data directory. Preserve `pages/`, `projects/`, `projects.json` and `keys.json`; together they contain page content, active key hashes and key metadata. Store backups with restricted permissions. The application does not implement revision history, trash or automatic backup retention.
 
 To restore:
 
@@ -67,7 +69,7 @@ To roll back, restore the previous application revision and its locked dependenc
 | No pages | Confirm `DATA_DIR` and supported lowercase `.md` filenames in `pages/` |
 | Startup reports directory in use | Identify the running owner before touching `.lock` |
 | 401 response | Bearer header, exact current secret, and revocation state |
-| 403 response | Key management needs an admin key |
+| 403 response | Check role requirements, exact `PUBLIC_URL`, and a fresh form/CSRF token |
 | 412 or 428 response | Fetch the current ETag, reconcile, and send exact `If-Match` |
 | 413 response | Page or request body exceeds the supported limit |
 | 500 response | Server logs, disk space, permissions, and valid key-registry JSON |

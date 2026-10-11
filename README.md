@@ -1,18 +1,20 @@
 # min wiki
 
-A small Node.js wiki. Pages are ordinary Markdown files, reading is public, and changes are made through a key-protected HTTP API. Includes search, heading outlines, raw Markdown export, writer/admin keys, and conditional writes to prevent accidental overwrites.
+A small Node.js wiki. Pages are ordinary Markdown files, reading can be public or private, and pages can be managed through the browser or an authenticated HTTP API. Includes search, heading outlines, raw Markdown export, read/write/admin keys, and conditional writes to prevent accidental overwrites.
 
-![The min wiki reader](docs/preview.jpg)
+![Private wiki with project navigation](docs/projects-preview.jpg)
 
 ## What it does
 
 - Renders Markdown with readable typography, tables, code blocks, section links, and responsive navigation.
 - Searches titles and page content, with no database or indexing service.
 - Creates, updates, deletes, and exports pages over HTTP, including direct Markdown file uploads.
-- Issues named writer/admin access keys, stores only their hashes, and supports immediate revocation for new requests.
+- Issues named read/write/admin access keys, stores only their hashes, and supports immediate revocation for new requests.
+- Supports Cognito managed login with write access for every signed-in user and an optional admin group.
+- Organizes pages into projects with shared wiki permissions and independent page slugs.
 - Requires the current ETag when updating or deleting a page to protect against conflicting edits.
 
-The reader is server-rendered and works without JavaScript. The service uses Express and markdown-it, with no frontend build step. This is a small, single-process wiki; accounts, browser editing, attachments, and revision history are outside the current scope.
+The reader is server-rendered and works without JavaScript. The service uses Express, markdown-it, and AWS’s JWT verifier, with no frontend build step. This is a small, single-process wiki; per-project permissions, attachments, and revision history are outside the current scope.
 
 ## Run locally
 
@@ -28,7 +30,7 @@ npm start
 
 `init` adds starter pages and prints a randomly generated admin key **once**. Save it in your password manager. No default key exists. Open [the wiki](http://127.0.0.1:3000) or [the API guide](http://127.0.0.1:3000/guide).
 
-Use the admin API to issue a separate `write` key for each client. Never put keys in source files, page content, URLs or browser storage. No keys are needed to read.
+Use the admin API to issue a separate `write` key for each client. Never put keys in source files, page content, URLs or browser storage. Public mode permits anonymous reading. For private mode, set `WIKI_VISIBILITY=private`; users can sign in with a wiki key or your configured Cognito pool.
 
 ```sh
 # Run the verification suite
@@ -45,11 +47,20 @@ npm run dev
 | --- | --- | --- |
 | `HOST` | `127.0.0.1` | Listening interface |
 | `PORT` | `3000` | HTTP port |
+| `WIKI_VISIBILITY` | `public` | `public` or `private` for all projects and content routes |
+| `PUBLIC_URL` | `http://127.0.0.1:3000` (uses `PORT`) | External origin; set explicitly for Cognito/proxy deployments |
+| `COGNITO_USER_POOL_ID` | Unset | Existing Cognito User Pool ID |
+| `COGNITO_CLIENT_ID` | Unset | Allowed app-client ID |
+| `COGNITO_DOMAIN` | Unset | Managed-login HTTPS origin |
+| `COGNITO_CLIENT_SECRET` | Unset | Optional confidential app-client secret |
+| `COGNITO_ADMIN_GROUP` | Unset | Exact group granting wiki admin permissions |
 | `DATA_DIR` | `data/` in this project | Absolute or working-directory-relative storage directory |
 
 For example, `DATA_DIR=/path/to/wiki-data PORT=4000 npm start`. Use the same `DATA_DIR` for initialization, key recovery, and serving. Environment variables are read directly; `.env` files are not automatically loaded.
 
-The server can start with an empty directory for a read-only empty wiki. Run `init` while stopped to add starter content and an admin, or `key:create` to create an admin without starter pages.
+See [.env.example](.env.example) and the [Cognito setup guide](docs/authentication.md) for the complete setup. Every signed-in Cognito user can edit every project; control user enrollment in your User Pool.
+
+The server can start with an empty directory for an empty wiki. Run `init` while stopped to add starter content and an admin, or `key:create` to create an admin without starter pages.
 
 ## API
 
@@ -65,13 +76,15 @@ See [the complete API guide](docs/api.md) for request/response formats, curl exa
 | Delete | `DELETE /api/pages/:slug`, exact `If-Match` ETag |
 | Manage keys | `GET/POST /api/keys`, `DELETE /api/keys/:id` (admin) |
 
-Mutations require `Authorization: Bearer <key>`. Reads are public except key listing. Writer keys cannot manage keys. Only hashes of generated secrets are stored; key secrets cannot be retrieved later.
+API mutations require `Authorization: Bearer <key-or-Cognito-access-token>`. Private-mode reads also require a credential. Only administrators can manage keys and projects. Browser session cookies do not authorize API calls. Only hashes of generated secrets are stored; key secrets cannot be retrieved later.
 
 ## Files and recovery
 
 ```text
 data/
-  pages/          # Canonical <slug>.md files
+  pages/          # General project: canonical <slug>.md files
+  projects/       # Additional project directories containing Markdown
+  projects.json   # Project names and descriptions
   keys.json       # Private key hashes and metadata; never served
   .lock           # Present while the service or CLI owns this directory
 ```
@@ -82,7 +95,7 @@ Run **one service process per data directory**, on a local filesystem. The serve
 
 If a crash leaves `.lock`, startup explains its location and PID. Verify that no service or CLI process owns that directory, then remove the stale lock and restart. Locks are never automatically removed during startup, avoiding competing recovery processes taking ownership at the same time.
 
-To back up, stop the service and copy the entire data directory to a protected location. Restore it while the service is stopped. Delete any copied `.lock` only after verifying no process is using the restored directory. Protect the backup because it contains public page content and private key metadata. Test restoration before relying on a backup process.
+To back up, stop the service and copy the entire data directory to a protected location. Restore it while the service is stopped. Delete any copied `.lock` only after verifying no process is using the restored directory. Protect the backup because it contains wiki content and private key metadata. Test restoration before relying on a backup process.
 
 To recover lost admin access, stop the server and run `npm run key:create -- "Recovery administrator"`. Save the new key, restart, and revoke lost keys using the API. Never print or paste key registry contents into public logs.
 
@@ -95,6 +108,8 @@ Search scans the collection and renders metadata on each request; this is intend
 ## Documentation
 
 - [API reference and examples](docs/api.md)
+- [Private access and Cognito configuration](docs/authentication.md)
+- [Projects, browser editing, and compatibility](docs/projects.md)
 - [Operations and recovery](docs/operations.md)
 - [Architecture comparison and UX/design decisions](docs/architecture.md)
 - [MVP status and acceptance evidence](ROADMAP.md)

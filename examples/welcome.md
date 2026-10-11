@@ -36,6 +36,6 @@ Make it easy for someone else to continue.
 
 ## Connect your tools
 
-Pages are public to read. An access key lets your scripts create and update them through a small HTTP API.
+Pages are public by default; private mode requires sign-in. An access key lets your scripts create and update them through a small HTTP API.
 
 Follow [Publishing with the API](publishing.md) to publish your first page, or open the [full API guide](/guide) for every endpoint.

@@ -1,6 +1,6 @@
 # Publishing with the API
 
-Bring notes from your scripts, tools, and everyday workflow into the wiki. A single request turns Markdown into a page anyone can read.
+Bring notes from your scripts, tools, and everyday workflow into the wiki. A single request turns Markdown into a page your wiki readers can access.
 
 ## Get an access key
 
