@@ -1,0 +1,30 @@
+{
+  "name": "min-wiki",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A small Markdown wiki with a key-protected API",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/p2dev/min-wiki.git"
+  },
+  "homepage": "https://github.com/p2dev/min-wiki#readme",
+  "bugs": {
+    "url": "https://github.com/p2dev/min-wiki/issues"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "init": "node src/cli.js init",
+    "key:create": "node src/cli.js key:create",
+    "test": "node --test",
+    "check": "node --check src/app.js && node --check src/store.js && node --check src/render.js && node --check src/server.js && node --check src/cli.js"
+  },
+  "dependencies": {
+    "express": "^5.3.0",
+    "markdown-it": "^14.3.2"
+  }
+}
