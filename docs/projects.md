@@ -66,3 +66,5 @@ data/
 ```
 
 Back up the entire data directory, including hidden `.tree.json` hierarchy files, project metadata and all project directories. Page files remain ordinary Markdown. Create projects through the API so metadata and directories stay aligned. Direct file edits are visible on subsequent reads, but must not race API writes.
+
+Cloud-linked projects are managed through the [versioned integration endpoint](cloud-project-sync.md). Their names/descriptions and archive status follow Cloud revisions; local deletion is blocked to preserve durable identity and pages.

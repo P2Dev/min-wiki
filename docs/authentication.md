@@ -83,3 +83,5 @@ Before deploying, verify sign-in and sign-out against your actual pool, callback
 - [Access-token claims](https://docs.aws.amazon.com/cognito/latest/developerguide/amazon-cognito-user-pools-using-the-access-token.html)
 - [Managed-login logout](https://docs.aws.amazon.com/cognito/latest/developerguide/logout-endpoint.html)
 - [AWS JWT verifier](https://github.com/awslabs/aws-jwt-verify)
+
+Dedicated `projects:sync` keys are restricted to the Cloud integration endpoint and are not human sign-in credentials. See [Cloud synchronization](cloud-project-sync.md). Native reader/writer/admin credentials retain their documented privileges.
