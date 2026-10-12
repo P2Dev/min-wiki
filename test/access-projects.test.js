@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, symlink } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, unlink, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { once } from 'node:events';
@@ -225,4 +225,125 @@ test('configuration fails closed and return destinations cannot escape the wiki'
   assert.throws(() => readConfig({ PUBLIC_URL: 'http://wiki.example' }), /HTTPS/);
   for (const value of ['//evil.example', '/\\evil.example', '/%2fevil.example', '/%5cevil.example', '/auth/cognito', 'https://evil.example', '/%ZZ']) assert.equal(localReturn(value), '/');
   assert.equal(localReturn('/projects/engineering?q=test'), '/projects/engineering?q=test');
+});
+
+test('subpages persist separately from Markdown and keep URLs, links and content ETags stable', async t => {
+  const { request, writer, store, directory } = await fixture(t);
+  const markdown = '# Child\n\n[Parent](hidden.md)';
+  const child = await request('/api/pages', { method: 'POST', key: writer, json: { slug: 'child', markdown, parent: 'hidden' } });
+  assert.equal(child.status, 201); assert.equal(child.data.url, '/wiki/child');
+  assert.equal(await readFile(path.join(directory, 'pages/child.md'), 'utf8'), markdown);
+  assert.equal((await new Store(directory).tree()).parents.child, 'hidden');
+  const get = await request('/api/pages/child', { key: writer }); assert.equal((await request('/api/pages/child/parent', { key: writer })).data.parent, 'hidden');
+  assert.match(get.data.html, /href="\/wiki\/hidden"/);
+  assert.equal((await request('/api/pages/child/raw', { key: writer })).text, markdown);
+  const listing = await request('/api/pages?q=Child', { key: writer }); assert.equal(listing.data.pages[0].parent, 'hidden');
+  const before = await request('/api/pages/child/parent', { key: writer });
+  const moved = await request('/api/pages/child/parent', { method: 'PUT', key: writer, json: { parent: null }, headers: { 'if-match': before.headers.get('etag') } });
+  assert.equal(moved.status, 200); assert.equal(moved.data.parent, null);
+  assert.equal((await store.get('child')).etag, child.data.etag);
+  const edit = await request('/api/pages/child', { method: 'PUT', key: writer, json: { markdown: '# Edited child' }, headers: { 'if-match': child.data.etag } });
+  assert.equal(edit.status, 200); assert.equal((await request('/api/pages/child/parent', { key: writer })).data.parent, null);
+  assert.equal((await store.tree()).etag, moved.headers.get('etag'));
+});
+
+test('tree writes reject cycles, stale edits, nonexistent parents, traversal and excessive nesting', async t => {
+  const { request, writer, store } = await fixture(t);
+  await store.create('child', '# Child', 'hidden'); await store.create('grandchild', '# Grandchild', 'child');
+  const move = async (slug, parent, etag) => request(`/api/pages/${slug}/parent`, { method: 'PUT', key: writer, json: { parent }, headers: { 'if-match': etag ?? (await store.tree()).etag } });
+  assert.equal((await move('hidden', 'grandchild')).data.error.code, 'parent_cycle');
+  assert.equal((await move('child', 'child')).data.error.code, 'parent_cycle');
+  assert.equal((await move('child', 'missing')).status, 404);
+  assert.equal((await move('child', '../hidden')).status, 400);
+  assert.equal((await move('child', '')).status, 400);
+  assert.equal((await request('/api/pages/child/parent', { method: 'PUT', key: writer, json: { parent: null } })).status, 428);
+  const etag = (await store.tree()).etag;
+  const concurrent = await Promise.all([move('child', null, etag), move('grandchild', 'hidden', etag)]);
+  assert.deepEqual(concurrent.map(result => result.status).sort(), [200, 412]);
+  for (let level = 1; level <= 15; level++) await store.create(`level-${level}`, `# Level ${level}`, level === 1 ? 'hidden' : `level-${level - 1}`);
+  assert.equal((await request('/api/pages', { method: 'POST', key: writer, json: { slug: 'too-deep', markdown: '# Too deep', parent: 'level-15' } })).data.error.code, 'tree_depth');
+  await assert.rejects(store.get('too-deep'), error => error.status === 404);
+});
+
+test('parent deletion protects descendants, reusing a slug does not revive old relationships, projects remain isolated', async t => {
+  const { request, writer, store, admin } = await fixture(t);
+  const root = await store.get('hidden');
+  const child = await store.create('child', '# Child', 'hidden');
+  assert.equal((await request('/api/pages/hidden', { method: 'DELETE', key: writer, headers: { 'if-match': root.etag } })).data.error.code, 'page_has_children');
+  await store.change('child', null, child.etag, true);
+  await store.create('child', '# Reused'); assert.equal((await store.tree()).parents.child, null);
+  await store.createProject('engineering', 'Engineering'); const other = await store.forProject('engineering');
+  const prefix = '/api/projects/engineering/pages';
+  assert.equal((await request(prefix, { method: 'POST', key: writer, json: { slug: 'child', markdown: '# Child', parent: 'hidden' } })).status, 404);
+  await other.create('hidden', '# Different parent'); await other.create('child', '# Other child', 'hidden');
+  assert.equal((await request(`${prefix}/child/parent`, { key: writer })).data.parent, 'hidden');
+  assert.equal((await request('/api/pages/child/parent', { key: writer })).data.parent, null);
+  await other.change('child', null, (await other.get('child')).etag, true);
+  await other.change('hidden', null, (await other.get('hidden')).etag, true);
+  assert.equal((await request('/api/projects/engineering', { method: 'DELETE', key: admin })).status, 204);
+});
+
+test('private hierarchy endpoints enforce reader, writer and CSRF boundaries', async t => {
+  const { request, login, reader, writer, store } = await fixture(t);
+  const etag = (await store.tree()).etag;
+  assert.equal((await request('/api/pages/hidden/parent')).status, 401);
+  assert.equal((await request('/wiki/hidden/parent')).status, 303);
+  assert.equal((await request('/api/pages/hidden/parent', { key: reader })).status, 200);
+  assert.equal((await request('/api/pages/hidden/parent', { method: 'PUT', key: reader, json: { parent: null }, headers: { 'if-match': etag } })).status, 403);
+  const readSession = await login(reader);
+  assert.equal((await request('/wiki/hidden/parent', { cookie: readSession.cookie })).status, 403);
+  const { cookie } = await login(writer);
+  const movePage = await request('/wiki/hidden/parent', { cookie });
+  const form = { parent: '', etag: field(movePage.text, 'etag'), csrf: field(movePage.text, 'csrf') };
+  assert.equal((await request('/wiki/hidden/parent', { method: 'POST', cookie, form: { ...form, csrf: 'wrong' } })).status, 403);
+  assert.equal((await request('/wiki/hidden/parent', { method: 'POST', cookie, form, headers: { origin: 'https://evil.example' } })).status, 403);
+  assert.equal((await request('/wiki/hidden/parent', { method: 'POST', cookie, form })).status, 303);
+});
+
+test('browser subpage forms, move recovery, ancestors and active sidebar branches stay coherent', async t => {
+  const { request, login, store } = await fixture(t);
+  const { cookie } = await login();
+  const newPage = await request('/projects/default/new?parent=hidden', { cookie });
+  assert.match(newPage.text, /option value="hidden" selected/);
+  const create = await request('/projects/default/new', { method: 'POST', cookie, form: { csrf: field(newPage.text, 'csrf'), slug: 'child', markdown: '# Child', parent: 'hidden' } });
+  assert.equal(create.status, 303); assert.equal(create.headers.get('location'), '/wiki/child');
+  await store.create('grandchild', '# Grandchild', 'child');
+  const article = await request('/wiki/grandchild', { cookie });
+  assert.equal((article.text.match(/class="page-branch" open/g) || []).length, 2);
+  assert.match(article.text, /href="\/wiki\/grandchild" aria-current="page"/);
+  assert.match(article.text, /class="breadcrumb"><a href="\/">Library<\/a><span>\/<\/span><a href="\/wiki\/hidden">Confidential title<\/a>/);
+  assert.match((await request('/wiki/hidden', { cookie })).text, /aria-label="Subpages"/);
+  const move = await request('/wiki/child/parent', { cookie });
+  assert.ok(!move.text.includes('<option value="grandchild"'));
+  assert.ok(!move.text.includes('<option value="child"'));
+  const form = { csrf: field(move.text, 'csrf'), etag: field(move.text, 'etag'), parent: '' };
+  await store.create('another', '# Another');
+  const conflict = await request('/wiki/child/parent', { method: 'POST', cookie, form });
+  assert.equal(conflict.status, 412); assert.match(conflict.text, /The page has not moved/);
+  const retry = await request('/wiki/child/parent', { method: 'POST', cookie, form: { ...form, etag: field(conflict.text, 'etag') } });
+  assert.equal(retry.status, 303); assert.equal((await store.tree()).parents.child, null);
+  assert.equal((await store.tree()).parents.grandchild, 'child');
+  const bad = await request('/projects/default/new', { method: 'POST', cookie, form: { csrf: field(newPage.text, 'csrf'), slug: 'child', markdown: '# Retain draft', parent: 'hidden' } });
+  assert.equal(bad.status, 409); assert.match(bad.text, /Retain draft/); assert.match(bad.text, /option value="hidden" selected/);
+});
+
+
+test('missing files and interrupted creates cannot revive stale parents; invalid tree storage fails safely', async t => {
+  const { store, directory } = await fixture(t);
+  await store.create('child', '# Child', 'hidden');
+  await unlink(path.join(directory, 'pages/hidden.md'));
+  assert.equal((await store.tree()).parents.child, null);
+  await store.create('hidden', '# New root');
+  assert.equal((await store.tree()).parents.child, null);
+  const filename = path.join(directory, 'pages/.tree.json');
+  await writeFile(filename, JSON.stringify({ phantom: 'hidden' }));
+  await store.create('phantom', '# New page');
+  assert.equal((await store.tree()).parents.phantom, null);
+  await writeFile(filename, JSON.stringify({ child: 'hidden', hidden: 'child' }));
+  await assert.rejects(store.tree(), error => error.code === 'invalid_tree');
+  await assert.rejects(store.create('unsafe', '# Must not write'), error => error.code === 'invalid_tree');
+  await assert.rejects(store.get('unsafe'), error => error.status === 404);
+  await unlink(filename);
+  await symlink(path.join(directory, 'keys.json'), filename);
+  await assert.rejects(store.tree(), error => error.code === 'invalid_tree');
 });

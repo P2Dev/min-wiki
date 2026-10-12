@@ -22,6 +22,14 @@ The original `/api/pages` routes address the built-in General (`default`) projec
 
 Administrators create projects with `POST /api/projects` and JSON `{ "slug": "engineering", "name": "Engineering", "description": "Build notes" }`. Readers can list projects with `GET /api/projects` and fetch details with `GET /api/projects/:project`. Administrators can delete empty projects with `DELETE /api/projects/:project`; nonempty projects and General return `409`. All projects share wiki permissions. See the [project guide](/projects) for the available collections and the repository’s `docs/projects.md` for the full contract.
 
+## Subpages
+
+List/search results include a `parent` slug, or `null` for a root page. Create requests can include `parent` to place a new page beneath an existing page in the same project. Existing Markdown content responses and ETags remain unchanged.
+
+Use `GET /api/pages/:slug/parent` to read the parent and hierarchy ETag. Move with `PUT /api/pages/:slug/parent`, JSON `{ "parent": "parent-slug" }` (or `null` for top level), and `If-Match` containing that hierarchy ETag. Both routes also work under `/api/projects/:project/pages`. A writer role is required for moves. Missing/stale hierarchy preconditions return `428`/`412`; a cycle returns `409`. A page with children cannot be deleted (`409 page_has_children`).
+
+Content updates preserve hierarchy and reject a supplied `parent` field; use the parent endpoint for moves. Trees support up to 16 levels. See `docs/subpages.md` for browser controls, complete examples, storage and recovery details.
+
 ## Read and find pages
 
 ```sh

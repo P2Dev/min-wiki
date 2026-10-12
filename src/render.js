@@ -45,8 +45,37 @@ export function renderMarkdown(markdown, slug = '', project = 'default') {
   return { title, titleId, html, outline, summary: summary.slice(0, 180) };
 }
 
+export function ancestors(page, pages) {
+  const bySlug = new Map(pages.map(item => [item.slug, item]));
+  const result = [], seen = new Set([page.slug]);
+  for (let parent = bySlug.get(page.parent); parent && !seen.has(parent.slug); parent = bySlug.get(parent.parent)) {
+    result.unshift(parent); seen.add(parent.slug);
+  }
+  return result;
+}
+function pageLink(page, active) {
+  return `<a class="page-link" href="${page.url || pageUrl(page.project || 'default', page.slug)}" ${active === page.slug ? 'aria-current="page"' : ''}>${escape(page.title)}</a>`;
+}
 function nav(pages, active) {
-  return pages.map(page => `<a class="page-link" href="${page.url || pageUrl(page.project || 'default', page.slug)}" ${active === page.slug ? 'aria-current="page"' : ''}><span aria-hidden="true">▤</span>${escape(page.title)}</a>`).join('');
+  const current = pages.find(page => page.slug === active);
+  const expanded = new Set(current ? [active, ...ancestors(current, pages).map(page => page.slug)] : []);
+  const children = new Map();
+  for (const page of pages) {
+    const parent = page.parent || null;
+    if (!children.has(parent)) children.set(parent, []);
+    children.get(parent).push(page);
+  }
+  const branch = parent => `<ul class="${parent === null ? 'page-tree' : 'page-children'}">${(children.get(parent) || []).map(page => children.has(page.slug)
+    ? `<li><details class="page-branch" ${expanded.has(page.slug) ? 'open' : ''}><summary aria-label="Subpages of ${escape(page.title)}"><span class="tree-caret" aria-hidden="true">▸</span>${pageLink(page, active)}</summary>${branch(page.slug)}</details></li>`
+    : `<li class="page-leaf">${pageLink(page, active)}</li>`).join('')}</ul>`;
+  return branch(null);
+}
+function parentOptions(pages, selected = null, page) {
+  const choices = pages.filter(item => item.slug !== page?.slug && (!page || !ancestors(item, pages).some(parent => parent.slug === page.slug)));
+  return `<label for="parent">Parent page</label><select id="parent" name="parent"><option value="">Top level (no parent)</option>${choices.map(item => `<option value="${item.slug}" ${item.slug === selected ? 'selected' : ''}>${escape([...ancestors(item, pages), item].map(part => part.title).join(' / '))}</option>`).join('')}</select><p class="field-help">Choose a page in this project, or keep this page at the top level.</p>`;
+}
+export function parentContent({ page, pages, treeEtag, csrf, error = '' }) {
+  return `<div class="breadcrumb"><a href="${page.url}">${escape(page.title)}</a><span>/</span>Move page</div><header class="article-header"><p class="eyebrow">Organize your pages</p><h1>Move this page.</h1><p class="lead">Choose where ${escape(page.title)} belongs. Its subpages move with it; page links stay the same.</p></header>${error ? `<div class="form-error" role="alert"><strong>The page has not moved.</strong><p>${escape(error)}</p><p>The choices below show the current hierarchy. Choose a parent and submit again.</p></div>` : ''}<form action="${page.url}/parent" method="post" class="stack-form"><input type="hidden" name="csrf" value="${escape(csrf)}"><input type="hidden" name="etag" value="${escape(treeEtag)}">${parentOptions(pages, page.parent, page)}<div class="form-actions"><button type="submit" class="primary-button">Move page</button><a href="${page.url}">Cancel</a></div></form>`;
 }
 export function layout({ title, pages, active, content, outline = [], query = '', projects = [], project = { slug: 'default', name: 'General' }, identity, csrf, visibility = 'public' }) {
   const home = projectHome(project.slug);
@@ -70,17 +99,19 @@ export function indexContent(pages, query, project = { slug: 'default', name: 'G
   <section class="page-list" aria-label="${query ? 'Search results' : 'All pages'}"><div class="list-heading"><h2>${query ? 'Matching pages' : 'Explore the pages'}</h2><span>${pages.length} ${pages.length === 1 ? 'page' : 'pages'}</span></div>${pages.length ? pages.map(page => `<a class="page-row" href="${page.url || pageUrl(page.project || 'default', page.slug)}"><div><h3>${escape(page.title)}</h3><p>${escape(page.summary)}</p><span class="page-slug">${page.slug}.md</span></div><span class="row-arrow" aria-hidden="true">↗</span></a>`).join('') : `<div class="empty"><h3>${query ? 'No pages found' : 'Your wiki starts here'}</h3><p>${query ? 'Try a different word, or return to the full library.' : 'Publish your first Markdown page using the API.'}</p><a href="${query ? home : '/guide'}">${query ? 'View all pages' : 'Create your first page'} →</a></div>`}</section><footer class="content-footer">Small by design. Useful by nature.<span>min wiki / 01</span></footer>`;
 }
 
-export function articleContent(page, editable = false) {
+export function articleContent(page, editable = false, pages = []) {
   const home = projectHome(page.project || 'default');
   const url = page.url || pageUrl(page.project || 'default', page.slug);
-  return `<div class="breadcrumb"><a href="${home}">Library</a><span>/</span>${escape(page.title)}</div><header class="article-header"><p class="eyebrow">Wiki page</p><h1 id="${escape(page.titleId)}">${escape(page.title)}</h1><div class="article-meta"><span>Updated <time datetime="${escape(page.updatedAt)}">${new Date(page.updatedAt).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' })}</time></span><span aria-hidden="true">·</span><a href="${url}/source">View Markdown ↗</a>${editable ? `<a class="edit-link" href="${url}/edit">Edit page →</a>` : ''}</div></header><article class="prose">${page.html}</article><footer class="content-footer"><a href="${home}">← All pages</a><span>${page.slug}.md</span></footer>`;
+  const parents = ancestors(page, pages);
+  const children = pages.filter(item => item.parent === page.slug);
+  return `<div class="breadcrumb"><a href="${home}">Library</a><span>/</span>${parents.map(parent => `<a href="${parent.url}">${escape(parent.title)}</a><span>/</span>`).join('')}${escape(page.title)}</div><header class="article-header"><p class="eyebrow">Wiki page</p><h1 id="${escape(page.titleId)}">${escape(page.title)}</h1><div class="article-meta"><span>Updated <time datetime="${escape(page.updatedAt)}">${new Date(page.updatedAt).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' })}</time></span><span aria-hidden="true">·</span><a href="${url}/source">View Markdown ↗</a>${editable ? `<a class="edit-link" href="${url}/edit">Edit page →</a><a href="${url}/parent">Move page</a><a href="/projects/${page.project || 'default'}/new?parent=${page.slug}">+ Add subpage</a>` : ''}</div></header><article class="prose">${page.html}</article>${children.length ? `<section class="child-pages" aria-label="Subpages"><h2>Subpages</h2><ul>${children.map(child => `<li><a href="${child.url}">${escape(child.title)}</a></li>`).join('')}</ul></section>` : ''}<footer class="content-footer"><a href="${home}">← All pages</a><span>${page.slug}.md</span></footer>`;
 }
 
-export function editorContent({ page, project, csrf, draft = {}, error = '' }) {
+export function editorContent({ page, project, csrf, draft = {}, error = '', pages = [] }) {
   const editing = Boolean(page);
   const url = editing ? `${pageUrl(project, page.slug)}/edit` : `/projects/${project}/new`;
   const cancel = editing ? pageUrl(project, page.slug) : projectHome(project);
-  return `<div class="breadcrumb"><a href="${cancel}">${editing ? escape(page.title) : 'Project'}</a><span>/</span>${editing ? 'Edit page' : 'New page'}</div><header class="article-header"><p class="eyebrow">Write in Markdown</p><h1>${editing ? 'Edit your page.' : 'Something worth keeping.'}</h1><p class="lead">${editing ? 'Your changes are published when you save.' : 'Start with a title, then add what you know.'}</p></header>${error ? `<div class="form-error" role="alert"><strong>Your changes have not been saved.</strong><p>${escape(error)}</p><p>Your draft is kept below. If this is a version conflict, copy your draft before <a href="${url}">reloading the latest version</a>.</p></div>` : ''}<form action="${url}" method="post" class="stack-form editor"><input type="hidden" name="csrf" value="${escape(csrf)}">${editing ? `<input type="hidden" name="etag" value="${escape(page.etag)}">` : `<label for="page-slug">Page slug</label><input id="page-slug" name="slug" required pattern="[a-z0-9]+(-[a-z0-9]+)*" maxlength="100" value="${escape(typeof draft.slug === 'string' ? draft.slug : '')}" placeholder="getting-started"><p class="field-help">Lowercase letters, numbers and hyphens. This becomes the page URL.</p>`}<label for="markdown">Markdown</label><textarea id="markdown" name="markdown" rows="22" required spellcheck="false">${escape(page?.markdown ?? (typeof draft.markdown === 'string' ? draft.markdown : '# Your title\n\n'))}</textarea><p class="field-help">The first # heading is the title. Maximum 256 KiB. Link to other pages in this project with page-slug.md.</p><div class="form-actions"><button type="submit" class="primary-button">${editing ? 'Save changes' : 'Publish page'}</button><a href="${cancel}">Cancel</a></div></form>`;
+  return `<div class="breadcrumb"><a href="${cancel}">${editing ? escape(page.title) : 'Project'}</a><span>/</span>${editing ? 'Edit page' : 'New page'}</div><header class="article-header"><p class="eyebrow">Write in Markdown</p><h1>${editing ? 'Edit your page.' : 'Something worth keeping.'}</h1><p class="lead">${editing ? 'Your changes are published when you save.' : 'Start with a title, then add what you know.'}</p></header>${error ? `<div class="form-error" role="alert"><strong>Your changes have not been saved.</strong><p>${escape(error)}</p><p>Your draft is kept below. If this is a version conflict, copy your draft before <a href="${url}">reloading the latest version</a>.</p></div>` : ''}<form action="${url}" method="post" class="stack-form editor"><input type="hidden" name="csrf" value="${escape(csrf)}">${editing ? `<input type="hidden" name="etag" value="${escape(page.etag)}">` : `<label for="page-slug">Page slug</label><input id="page-slug" name="slug" required pattern="[a-z0-9]+(-[a-z0-9]+)*" maxlength="100" value="${escape(typeof draft.slug === 'string' ? draft.slug : '')}" placeholder="getting-started"><p class="field-help">Lowercase letters, numbers and hyphens. This becomes the page URL.</p>`}${editing ? '' : parentOptions(pages, draft.parent)}<label for="markdown">Markdown</label><textarea id="markdown" name="markdown" rows="22" required spellcheck="false">${escape(page?.markdown ?? (typeof draft.markdown === 'string' ? draft.markdown : '# Your title\n\n'))}</textarea><p class="field-help">The first # heading is the title. Maximum 256 KiB. Link to other pages in this project with page-slug.md.</p><div class="form-actions"><button type="submit" class="primary-button">${editing ? 'Save changes' : 'Publish page'}</button><a href="${cancel}">Cancel</a></div></form>`;
 }
 
 export function projectsContent(projects) {

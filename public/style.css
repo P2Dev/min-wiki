@@ -180,7 +180,7 @@ button,summary {
   margin-top:34px;
 }
 
-.page-nav summary {
+.page-nav>summary {
   font-size:12px;
   font-weight:600;
   color:var(--muted);
@@ -189,20 +189,20 @@ button,summary {
   justify-content:space-between;
 }
 
-.page-nav summary::marker {
+.page-nav>summary::marker {
   content:'';
 }
 
-.page-nav summary:after {
+.page-nav>summary:after {
   content:'−';
   margin-left:8px;
 }
 
-.page-nav:not([open]) summary:after {
+.page-nav:not([open])>summary:after {
   content:'+';
 }
 
-.page-nav summary span {
+.page-nav>summary span {
   margin-left:auto;
   font-weight:400;
 }
@@ -667,7 +667,7 @@ h1 {
   .page-nav {
     margin-top:8px;
   }
-  .page-nav summary {
+  .page-nav>summary {
     padding:10px 0;
   }
   .page-nav nav {
@@ -816,4 +816,29 @@ pre:focus-visible,table:focus-visible {
   .auth-page { padding:35px 22px; }
   .auth-page .brand { margin-bottom:45px; }
   .stack-form input:not([type=hidden]) { font-size:16px; }
+}
+
+/* Native disclosures keep nested navigation available without JavaScript. */
+.page-tree,.page-children { list-style:none; margin:0; padding:0; }
+.page-tree li { min-width:0; }
+.page-children { margin-left:12px; padding-left:8px; border-left:1px solid var(--line); }
+.page-branch>summary { display:flex; align-items:center; list-style:none; border-radius:4px; }
+.page-branch>summary::-webkit-details-marker { display:none; }
+.tree-caret { flex:0 0 24px; text-align:center; color:var(--muted); }
+.page-branch[open]>summary>.tree-caret { transform:rotate(90deg); }
+.page-branch>summary .page-link { flex:1; min-width:0; padding-left:4px; }
+.page-leaf>.page-link { padding-left:28px; }
+.page-branch>summary:hover { background:#edf0f4; }
+.breadcrumb { flex-wrap:wrap; }
+.child-pages { margin-top:35px; padding-top:20px; border-top:1px solid var(--line); }
+.child-pages h2 { font-size:16px; }
+.child-pages ul { padding-left:20px; }
+.child-pages a { font-size:14px; }
+.stack-form select { width:100%; min-width:0; padding:12px; border:1px solid var(--control); border-radius:5px; background:var(--paper); color:var(--text); font:inherit; }
+select:focus-visible { outline:3px solid var(--accent); outline-offset:4px; }
+@media(max-width:680px) {
+  .page-nav nav { display:block; max-height:320px; overflow:auto; padding:4px 4px 8px; }
+  .page-tree .page-link { max-width:none; margin:2px 0; }
+  .all-pages { margin-bottom:8px; }
+  .stack-form select { font-size:16px; }
 }

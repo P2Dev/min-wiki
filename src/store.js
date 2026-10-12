@@ -105,12 +105,17 @@ export class Store {
     if (slug === 'default') fail(409, 'default_project', 'The General project cannot be deleted.');
     return this.serialize(async () => {
       const scoped = await this.forProject(slug);
-      if ((await readdir(scoped.pages)).length) fail(409, 'project_not_empty', 'Delete or move all files before deleting this project.');
+      if ((await readdir(scoped.pages)).some(name => name !== '.tree.json')) fail(409, 'project_not_empty', 'Delete or move all files before deleting this project.');
       const projects = (await this.projects()).filter(item => item.slug !== 'default' && item.slug !== slug);
       // Remove the directory first; if metadata persistence fails, recreate the empty directory.
-      await rmdir(scoped.pages);
+      const treeFile = path.join(scoped.pages, '.tree.json');
+      let treeBackup;
+      try { treeBackup = await readFile(treeFile); await unlink(treeFile); }
+      catch (error) { if (error.code !== 'ENOENT') throw error; }
+      try { await rmdir(scoped.pages); }
+      catch (error) { if (treeBackup) await atomicWrite(treeFile, treeBackup); throw error; }
       try { await atomicWrite(this.projectsFile, JSON.stringify(projects, null, 2) + '\n'); }
-      catch (error) { await mkdir(scoped.pages, { mode: 0o700 }); throw error; }
+      catch (error) { await mkdir(scoped.pages, { mode: 0o700 }); if (treeBackup) await atomicWrite(treeFile, treeBackup); throw error; }
     });
   }
   serialize(work) {
@@ -143,13 +148,74 @@ export class Store {
     }
     return pages;
   }
-  create(slug, markdown) {
+  async tree() {
+    const entries = await readdir(this.pages, { withFileTypes: true });
+    const slugs = entries.filter(entry => entry.isFile() && entry.name.endsWith('.md') && validSlug(entry.name.slice(0, -3))).map(entry => entry.name.slice(0, -3)).sort();
+    let stored = {}, file;
+    try {
+      file = await open(path.join(this.pages, '.tree.json'), constants.O_RDONLY | constants.O_NOFOLLOW);
+      const stat = await file.stat();
+      if (!stat.isFile() || stat.size > 1024 * 1024) fail(500, 'invalid_tree', 'Page hierarchy storage is invalid.');
+      stored = JSON.parse(await file.readFile('utf8'));
+    } catch (error) {
+      if (error.code !== 'ENOENT') fail(500, 'invalid_tree', 'Page hierarchy storage is invalid. Restore a valid .tree.json backup.');
+    } finally { await file?.close(); }
+    if (!stored || typeof stored !== 'object' || Array.isArray(stored) || Object.entries(stored).some(([slug, parent]) => !validSlug(slug) || !validSlug(parent))) fail(500, 'invalid_tree', 'Page hierarchy storage is invalid.');
+    const existing = new Set(slugs);
+    // External file removals promote children to the root. Missing-page records
+    // are ignored and pruned before a slug can be created again.
+    const parents = Object.fromEntries(slugs.map(slug => [slug, Object.hasOwn(stored, slug) && existing.has(stored[slug]) ? stored[slug] : null]));
+    try { this.validateTree(parents); }
+    catch { fail(500, 'invalid_tree', 'Page hierarchy contains a cycle or exceeds 16 levels. Restore a valid .tree.json backup.'); }
+    return { parents, etag: `"tree-${digest(JSON.stringify(parents))}"` };
+  }
+  validateTree(parents) {
+    for (const slug of Object.keys(parents)) {
+      const seen = new Set();
+      for (let current = slug; current !== null; current = parents[current]) {
+        if (seen.has(current)) fail(409, 'parent_cycle', 'A page cannot be placed under itself or one of its subpages.');
+        seen.add(current);
+        if (seen.size > 16) fail(400, 'tree_depth', 'Pages can be nested up to 16 levels deep.');
+      }
+    }
+  }
+  async saveTree(parents) {
+    const stored = Object.fromEntries(Object.entries(parents).filter(([, parent]) => parent !== null));
+    const content = JSON.stringify(stored, null, 2) + '\n';
+    if (Buffer.byteLength(content) > 1024 * 1024) fail(409, 'tree_limit', 'The page hierarchy has reached its 1 MiB metadata limit.');
+    await atomicWrite(path.join(this.pages, '.tree.json'), content);
+  }
+  changeParent(slug, parent, etag) {
+    checkSlug(slug);
+    if (parent !== null) checkSlug(parent);
+    if (!etag) fail(428, 'precondition_required', 'Send the current hierarchy ETag in the If-Match header.');
+    return this.serialize(async () => {
+      await this.get(slug);
+      const tree = await this.tree();
+      if (etag !== tree.etag) fail(412, 'tree_conflict', 'The page hierarchy changed. Reload the parent choices and try again.');
+      if (parent !== null && !Object.hasOwn(tree.parents, parent)) fail(404, 'parent_not_found', 'The parent page does not exist in this project.');
+      tree.parents[slug] = parent;
+      this.validateTree(tree.parents);
+      await this.saveTree(tree.parents);
+      return this.tree();
+    });
+  }
+  create(slug, markdown, parent = null) {
     checkSlug(slug); checkMarkdown(markdown);
+    if (parent !== null) checkSlug(parent);
     return this.serialize(async () => {
       // Exclusive creation also prevents replacing an existing symlink.
       const filename = path.join(this.pages, `${slug}.md`);
       try { await this.get(slug); fail(409, 'page_exists', 'A page with this slug already exists.'); }
       catch (error) { if (error.status !== 404) throw error; }
+      const tree = await this.tree();
+      if (parent !== null && !Object.hasOwn(tree.parents, parent)) fail(404, 'parent_not_found', 'The parent page does not exist in this project.');
+      tree.parents[slug] = parent;
+      this.validateTree(tree.parents);
+      // Publish the relationship before the page: readers ignore missing slugs.
+      // A crash or failed link leaves only an ignored record, never a partial page.
+      // Every creation replaces any stale relationship before reusing a slug.
+      await this.saveTree(tree.parents);
       // A temporary file is linked into place exclusively, so reads never see partial content.
       const temporary = `${filename}.${randomUUID()}.tmp`;
       try {
@@ -169,7 +235,12 @@ export class Store {
       const page = await this.get(slug);
       if (etag !== page.etag) fail(412, 'version_conflict', 'The page changed. Fetch its latest content and ETag, reconcile your edit, and retry.');
       const filename = path.join(this.pages, `${slug}.md`);
-      if (remove) { await unlink(filename); return; }
+      if (remove) {
+        const tree = await this.tree();
+        if (Object.values(tree.parents).includes(slug)) fail(409, 'page_has_children', 'Move or delete this page’s subpages before deleting it.');
+        await unlink(filename);
+        return;
+      }
       await atomicWrite(filename, markdown);
       return this.get(slug);
     });

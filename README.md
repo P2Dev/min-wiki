@@ -12,6 +12,7 @@ A small Node.js wiki. Pages are ordinary Markdown files, reading can be public o
 - Issues named read/write/admin access keys, stores only their hashes, and supports immediate revocation for new requests.
 - Supports Cognito managed login with write access for every signed-in user and an optional admin group.
 - Organizes pages into projects with shared wiki permissions and independent page slugs.
+- Nests pages under parents in a collapsible sidebar tree, with browser/API controls for creating subpages and moving branches.
 - Requires the current ETag when updating or deleting a page to protect against conflicting edits.
 
 The reader is server-rendered and works without JavaScript. The service uses Express, markdown-it, and AWS’s JWT verifier, with no frontend build step. This is a small, single-process wiki; per-project permissions, attachments, and revision history are outside the current scope.
@@ -74,6 +75,7 @@ See [the complete API guide](docs/api.md) for request/response formats, curl exa
 | Upload new file | `PUT /api/pages/:slug`, `If-None-Match: *`, `text/markdown` body |
 | Update | `PUT /api/pages/:slug`, exact `If-Match` ETag |
 | Delete | `DELETE /api/pages/:slug`, exact `If-Match` ETag |
+| Read/move parent | `GET/PUT /api/pages/:slug/parent` (moves use hierarchy ETag) |
 | Manage keys | `GET/POST /api/keys`, `DELETE /api/keys/:id` (admin) |
 
 API mutations require `Authorization: Bearer <key-or-Cognito-access-token>`. Private-mode reads also require a credential. Only administrators can manage keys and projects. Browser session cookies do not authorize API calls. Only hashes of generated secrets are stored; key secrets cannot be retrieved later.
@@ -82,7 +84,7 @@ API mutations require `Authorization: Bearer <key-or-Cognito-access-token>`. Pri
 
 ```text
 data/
-  pages/          # General project: canonical <slug>.md files
+  pages/          # General project: <slug>.md files and hidden .tree.json
   projects/       # Additional project directories containing Markdown
   projects.json   # Project names and descriptions
   keys.json       # Private key hashes and metadata; never served
@@ -110,6 +112,7 @@ Search scans the collection and renders metadata on each request; this is intend
 - [API reference and examples](docs/api.md)
 - [Private access and Cognito configuration](docs/authentication.md)
 - [Projects, browser editing, and compatibility](docs/projects.md)
+- [Subpages, page trees, and hierarchy API](docs/subpages.md)
 - [Operations and recovery](docs/operations.md)
 - [Architecture comparison and UX/design decisions](docs/architecture.md)
 - [MVP status and acceptance evidence](ROADMAP.md)
