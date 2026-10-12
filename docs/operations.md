@@ -37,7 +37,7 @@ Create a replacement admin before revoking the final administrator. If all admin
 
 ## Backup and restore
 
-Stop the server before copying the entire data directory. Preserve `pages/`, `projects/`, `projects.json` and `keys.json`; together they contain page content, active key hashes and key metadata. Store backups with restricted permissions. The application does not implement revision history, trash or automatic backup retention.
+Stop the server before copying the entire data directory. Preserve `pages/`, `projects/`, `projects.json`, `keys.json` and all hidden `.tree.json` files; together they contain page content, active key hashes and key metadata. Store backups with restricted permissions. The application does not implement revision history, trash or automatic backup retention.
 
 To restore:
 
@@ -72,7 +72,7 @@ To roll back, restore the previous application revision and its locked dependenc
 | 403 response | Check role requirements, exact `PUBLIC_URL`, and a fresh form/CSRF token |
 | 412 or 428 response | Fetch the current ETag, reconcile, and send exact `If-Match` |
 | 413 response | Page or request body exceeds the supported limit |
-| 500 response | Server logs, disk space, permissions, and valid key-registry JSON |
+| 500 response | Server logs, disk space, permissions, and valid key/hierarchy JSON; see `docs/subpages.md` for `invalid_tree` recovery |
 | Port already in use | Stop the intended old instance or select a different `PORT` |
 
 Search reads the collection on each request. If measured collection size or traffic makes this unsuitable, plan indexing separately; do not solve it by starting multiple instances against the same directory.

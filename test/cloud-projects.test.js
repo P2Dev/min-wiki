@@ -28,16 +28,18 @@ test('dedicated credential creates once, replays after restart and preserves pag
   const r=await f.put(Object.fromEntries(Object.entries(body).reverse()));assert.equal(r.status,200);assert.equal(r.headers.get('idempotency-replayed'),'true');
   assert.deepEqual(await r.json(),{schemaVersion:1,cloudProjectId:id,revision:1,resourceType:'project',resourceId:body.slug,url:'https://wiki.example/projects/'+body.slug});
   const page=await (await f.store.forProject(body.slug)).create('kept','# Preserve me');
+  await (await f.store.forProject(body.slug)).create('nested','# Nested page','kept');
   for(const [index,status] of ['active','archived','active'].entries())assert.equal((await f.put({...body,revision:index+2,name:'Renamed',status})).status,200);
   const restarted=new Store(f.directory);await restarted.init();
   const reply=await syncCloudProject(restarted,f.key.secret,{...body,revision:4,name:'Renamed'},id,`cloud-project-${id}-r4`,'https://wiki.example');assert.equal(reply.replayed,true);
   assert.equal((await (await restarted.forProject(body.slug)).get('kept')).etag,page.etag);
+  assert.equal((await (await restarted.forProject(body.slug)).tree()).parents.nested,'kept');
   await assert.rejects(restarted.deleteProject(body.slug),error=>error.code==='cloud_project');
 });
 test('authorization, expiry, revocation, exclusive role and private content boundaries',async t=>{
   const f=await fixture(t);assert.equal((await f.put(body,null)).status,401);assert.equal((await f.put(body,f.admin.secret)).status,403);
   assert.equal((await f.put()).status,201);
-  for(const url of ['/api/pages','/api/projects','/api/keys'])assert.equal((await fetch(f.base+url,{headers:{Authorization:'Bearer '+f.key.secret}})).status,401);
+  for(const url of ['/api/pages','/api/projects','/api/keys','/api/pages/hidden/parent'])assert.equal((await fetch(f.base+url,{headers:{Authorization:'Bearer '+f.key.secret}})).status,401);
   const stored=JSON.parse(await readFile(f.store.keysFile,'utf8'));const key=stored.find(k=>k.id===f.key.id);assert.notEqual(key.hash,f.key.secret);assert.ok(Date.parse(key.expiresAt)>Date.now()+89*86400000);
   key.expiresAt=new Date(0).toISOString();await writeFile(f.store.keysFile,JSON.stringify(stored));assert.equal((await f.put()).status,401);
   const fresh=await f.store.issueKey('Replacement','projects:sync');assert.equal((await f.put(body,fresh.secret)).status,200);await f.store.revokeKey(fresh.id);assert.equal((await f.put(body,fresh.secret)).status,401);

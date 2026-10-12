@@ -20,7 +20,7 @@ The built-in project has slug `default` and display name **General**. Existing f
 
 The page API supports the same read/create/update/delete/raw routes, body formats, key roles and ETag preconditions as the original API. The default project also has explicit `/projects/default` and `/api/projects/default/pages` aliases.
 
-Search is scoped to the current project. A link such as `[Setup](setup.md#installation)` resolves inside that project. Use an absolute wiki path to link across projects. The same page slug can exist independently in multiple projects. The header brand returns to General; the sidebar project chooser and `/projects` directory switch collections.
+Each project has its own [collapsible page tree](subpages.md). Parent relationships stay inside the project; creating or moving a subpage preserves its URL. Search is scoped to the current project. A link such as `[Setup](setup.md#installation)` resolves inside that project. Use an absolute wiki path to link across projects. The same page slug can exist independently in multiple projects. The header brand returns to General; the sidebar project chooser and `/projects` directory switch collections.
 
 ## Create a project
 
@@ -65,6 +65,6 @@ data/
   keys.json
 ```
 
-Back up the entire data directory, including project metadata and all project directories. Page files remain ordinary Markdown. Create projects through the API so metadata and directories stay aligned. Direct file edits are visible on subsequent reads, but must not race API writes.
+Back up the entire data directory, including hidden `.tree.json` hierarchy files, project metadata and all project directories. Page files remain ordinary Markdown. Create projects through the API so metadata and directories stay aligned. Direct file edits are visible on subsequent reads, but must not race API writes.
 
 Cloud-linked projects are managed through the [versioned integration endpoint](cloud-project-sync.md). Their names/descriptions and archive status follow Cloud revisions; local deletion is blocked to preserve durable identity and pages.

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import { Store, Problem, fail } from './store.js';
-import { renderMarkdown, layout, indexContent, articleContent, escape, projectHome, pageUrl, editorContent, projectsContent } from './render.js';
+import { renderMarkdown, layout, indexContent, articleContent, escape, projectHome, pageUrl, editorContent, projectsContent, parentContent } from './render.js';
 import { createAuth, can } from './auth.js';
 import { readConfig } from './config.js';
 import { randomUUID } from 'node:crypto';
@@ -82,7 +82,13 @@ export async function createApp({ dataDir = process.env.DATA_DIR || path.join(ro
 
   async function allPages(project = 'default') {
     const scoped = await store.forProject(project);
-    return (await scoped.list()).map(page => describe(page, project)).sort((a, b) => a.title.localeCompare(b.title));
+    const tree = await scoped.tree();
+    return (await scoped.list()).map(page => describe({ ...page, parent: tree.parents[page.slug] ?? null }, project)).sort((a, b) => a.title.localeCompare(b.title));
+  }
+  async function readPage(scoped, slug, project) {
+    const page = await scoped.get(slug);
+    const tree = await scoped.tree();
+    return describe({ ...page, parent: tree.parents[slug] ?? null }, project);
   }
   const filterPages = (pages, query) => pages.filter(page => `${page.title}\n${page.markdown}`.toLowerCase().includes(query.toLowerCase()));
   const apiPages = express.Router({ mergeParams: true });
@@ -93,31 +99,42 @@ export async function createApp({ dataDir = process.env.DATA_DIR || path.join(ro
   });
   apiPages.get('/', async (request, response) => {
     const pages = filterPages(await allPages(request.projectSlug), queryText(request.query.q));
-    response.json({ pages: pages.map(({ slug, project, title, summary, updatedAt, etag, url }) => ({ slug, project, title, summary, updatedAt, etag, url })), total: pages.length });
+    response.json({ pages: pages.map(({ slug, project, parent, title, summary, updatedAt, etag, url }) => ({ slug, project, parent, title, summary, updatedAt, etag, url })), total: pages.length });
+  });
+  apiPages.get('/:slug/parent', async (request, response) => {
+    await request.pageStore.get(request.params.slug);
+    const tree = await request.pageStore.tree();
+    response.set('ETag', tree.etag).json({ slug: request.params.slug, parent: tree.parents[request.params.slug], etag: tree.etag });
+  });
+  apiPages.put('/:slug/parent', async (request, response) => {
+    const tree = await request.pageStore.changeParent(request.params.slug, request.body?.parent, request.get('if-match'));
+    response.set('ETag', tree.etag).json({ slug: request.params.slug, parent: tree.parents[request.params.slug], etag: tree.etag });
   });
   apiPages.get('/:slug/raw', async (request, response) => {
     const page = await request.pageStore.get(request.params.slug);
     response.set('ETag', page.etag).type('text/markdown').send(page.markdown);
   });
   apiPages.get('/:slug', async (request, response) => {
-    const page = describe(await request.pageStore.get(request.params.slug), request.projectSlug);
+    const page = await readPage(request.pageStore, request.params.slug, request.projectSlug);
     response.set('ETag', page.etag).json(publicPage(page));
   });
   apiPages.post('/', async (request, response) => {
-    const page = describe(await request.pageStore.create(request.body?.slug, request.body?.markdown), request.projectSlug);
+    const saved = await request.pageStore.create(request.body?.slug, request.body?.markdown, request.body?.parent);
+    const page = await readPage(request.pageStore, saved.slug, request.projectSlug);
     response.status(201).location(`${request.baseUrl}/${page.slug}`).set('ETag', page.etag).json(publicPage(page));
   });
   apiPages.put('/:slug', async (request, response) => {
     const creating = request.get('if-none-match') === '*';
     if (creating && request.get('if-match')) fail(400, 'conflicting_conditions', 'Use either If-Match or If-None-Match, not both.');
+    if (!creating && request.body && typeof request.body === 'object' && Object.hasOwn(request.body, 'parent')) fail(400, 'separate_parent_update', 'Change the parent through this page’s /parent endpoint using its hierarchy ETag.');
     let saved;
     try {
-      saved = creating ? await request.pageStore.create(request.params.slug, bodyMarkdown(request)) : await request.pageStore.change(request.params.slug, bodyMarkdown(request), request.get('if-match'));
+      saved = creating ? await request.pageStore.create(request.params.slug, bodyMarkdown(request), typeof request.body === 'object' ? request.body?.parent : null) : await request.pageStore.change(request.params.slug, bodyMarkdown(request), request.get('if-match'));
     } catch (error) {
       if (creating && error.code === 'page_exists') fail(412, 'page_exists', 'This page already exists. Fetch its ETag and use If-Match to update it.');
       throw error;
     }
-    const page = describe(saved, request.projectSlug);
+    const page = await readPage(request.pageStore, saved.slug, request.projectSlug);
     response.status(creating ? 201 : 200).location(`${request.baseUrl}/${page.slug}`).set('ETag', page.etag).json(publicPage(page));
   });
   apiPages.delete('/:slug', async (request, response) => {
@@ -164,16 +181,33 @@ export async function createApp({ dataDir = process.env.DATA_DIR || path.join(ro
     next();
   });
   reader.get('/:slug', async (request, response) => {
-    const page = describe(await request.pageStore.get(request.params.slug), request.projectSlug);
-    await show(request, response, { title: page.title, active: page.slug, outline: page.outline, content: articleContent(page, can(request.identity, 'write')) }, request.projectSlug);
+    const page = await readPage(request.pageStore, request.params.slug, request.projectSlug);
+    await show(request, response, { title: page.title, active: page.slug, outline: page.outline, content: articleContent(page, can(request.identity, 'write'), await allPages(request.projectSlug)) }, request.projectSlug);
   });
   reader.get('/:slug/source', async (request, response) => {
-    const page = describe(await request.pageStore.get(request.params.slug), request.projectSlug);
+    const page = await readPage(request.pageStore, request.params.slug, request.projectSlug);
     await show(request, response, { title: `${page.title} — Markdown`, active: page.slug, content: `<div class="breadcrumb"><a href="${page.url}">${escape(page.title)}</a><span>/</span>Markdown source</div><header class="article-header"><p class="eyebrow">Page source</p><h1>${escape(page.title)}</h1><p class="lead">${page.slug}.md</p><a class="button-link" href="${page.url}">← Back to the page</a></header><div class="prose"><pre tabindex="0" aria-label="Markdown source"><code>${escape(page.markdown)}</code></pre></div>` }, request.projectSlug);
   });
+  async function showParent(request, response, error = '') {
+    const page = await readPage(request.pageStore, request.params.slug, request.projectSlug);
+    const tree = await request.pageStore.tree();
+    await show(request, response, { title: `Move ${page.title}`, active: page.slug, content: parentContent({ page, pages: await allPages(request.projectSlug), treeEtag: tree.etag, csrf: request.webSession.csrf, error }) }, request.projectSlug);
+  }
+  reader.get('/:slug/parent', auth.requireRole('write'), (request, response) => showParent(request, response));
+  reader.post('/:slug/parent', auth.requireRole('write'), async (request, response) => {
+    auth.csrf(request);
+    try {
+      await request.pageStore.changeParent(request.params.slug, request.body?.parent === '' ? null : request.body?.parent, request.body?.etag);
+      response.redirect(303, pageUrl(request.projectSlug, request.params.slug));
+    } catch (error) {
+      if (!(error instanceof Problem)) throw error;
+      response.status(error.status);
+      await showParent(request, response, error.message);
+    }
+  });
   reader.get('/:slug/edit', auth.requireRole('write'), async (request, response) => {
-    const page = describe(await request.pageStore.get(request.params.slug), request.projectSlug);
-    await show(request, response, { title: `Edit ${page.title}`, content: editorContent({ page, project: request.projectSlug, csrf: request.webSession.csrf }) }, request.projectSlug);
+    const page = await readPage(request.pageStore, request.params.slug, request.projectSlug);
+    await show(request, response, { title: `Edit ${page.title}`, active: page.slug, content: editorContent({ page, project: request.projectSlug, csrf: request.webSession.csrf }) }, request.projectSlug);
   });
   reader.post('/:slug/edit', auth.requireRole('write'), async (request, response) => {
     auth.csrf(request);
@@ -188,17 +222,17 @@ export async function createApp({ dataDir = process.env.DATA_DIR || path.join(ro
   });
   app.use('/wiki', reader);
   app.use('/projects/:project/wiki', reader);
-  app.get('/projects/:project/new', auth.requireRole('write'), async (request, response) => show(request, response, { title: 'New page', content: editorContent({ project: request.params.project, csrf: request.webSession.csrf }) }, request.params.project));
+  app.get('/projects/:project/new', auth.requireRole('write'), async (request, response) => show(request, response, { title: 'New page', content: editorContent({ project: request.params.project, csrf: request.webSession.csrf, pages: await allPages(request.params.project), draft: { parent: request.query.parent } }) }, request.params.project));
   app.post('/projects/:project/new', auth.requireRole('write'), async (request, response) => {
     auth.csrf(request);
     const scoped = await store.forProject(request.params.project);
     try {
-      const page = await scoped.create(request.body?.slug, request.body?.markdown);
+      const page = await scoped.create(request.body?.slug, request.body?.markdown, request.body?.parent === '' ? null : request.body?.parent);
       response.redirect(303, pageUrl(request.params.project, page.slug));
     } catch (error) {
       if (!(error instanceof Problem)) throw error;
       response.status(error.status);
-      await show(request, response, { title: 'Review your page', content: editorContent({ project: request.params.project, csrf: request.webSession.csrf, draft: request.body, error: error.message }) }, request.params.project);
+      await show(request, response, { title: 'Review your page', content: editorContent({ project: request.params.project, csrf: request.webSession.csrf, draft: request.body, pages: await allPages(request.params.project), error: error.message }) }, request.params.project);
     }
   });
   app.use(() => fail(404, 'not_found', 'This page does not exist. It may have been moved or deleted.'));
