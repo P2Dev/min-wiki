@@ -1,6 +1,8 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import express from 'express';
 import { CognitoJwtVerifier } from 'aws-jwt-verify';
+import { appRoleForGroups } from '@p2dev/common/roles';
+import { cognitoGroups } from '@p2dev/common/auth';
 import { FetchError } from 'aws-jwt-verify/error';
 import { fail } from './store.js';
 import { escape } from './render.js';
@@ -63,8 +65,8 @@ export function createAuth(store, config, { verifier = config.cognito ? createCo
     try {
       const claims = await verifier.verify(token);
       if (!claims.sub || !claims.username || !Number.isFinite(claims.exp) || claims.exp * 1000 <= now()) return null;
-      const groups = Array.isArray(claims['cognito:groups']) ? claims['cognito:groups'] : [];
-      return { kind: 'cognito', id: claims.sub, name: claims.username, role: config.cognito.adminGroup && groups.includes(config.cognito.adminGroup) ? 'admin' : 'write', expires: claims.exp * 1000 };
+      const groups = cognitoGroups(claims);
+      return { kind: 'cognito', id: claims.sub, name: claims.username, role: appRoleForGroups(groups, { adminGroup: config.cognito.adminGroup || '', memberRole: 'write' }), expires: claims.exp * 1000 };
     } catch (error) {
       if (error instanceof FetchError) fail(503, 'identity_unavailable', 'The identity provider is temporarily unavailable. Please try again.');
       return null;

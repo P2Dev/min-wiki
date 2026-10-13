@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { syncCloudProject } from './cloud-projects.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
+const sharedTheme = fileURLToPath(import.meta.resolve('@p2dev/common/theme.css'));
 const describe = (page, project = 'default') => ({ ...page, project, url: pageUrl(project, page.slug), ...renderMarkdown(page.markdown, page.slug, project) });
 const publicPage = page => ({ slug: page.slug, project: page.project, title: page.title, markdown: page.markdown, html: page.html, updatedAt: page.updatedAt, etag: page.etag, url: page.url });
 const queryText = query => {
@@ -35,6 +36,7 @@ export async function createApp({ dataDir = process.env.DATA_DIR || path.join(ro
     });
     next();
   });
+  app.get('/assets/p2-theme.css', (request, response) => response.type('css').sendFile(sharedTheme));
   app.use('/assets', express.static(path.join(root, 'public'), { dotfiles: 'deny', index: false }));
   // Browsers request this independently. Redirecting it to sign-in would replace
   // the login transaction cookie while the user is completing their form.
