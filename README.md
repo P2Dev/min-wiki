@@ -1,5 +1,7 @@
 # min wiki
 
+The pinned `@p2dev/common` package supplies Cognito group-role helpers and neutral theme tokens. Standalone Wiki still works with its own access keys and can run without Cognito; each deployment chooses its own pool and optional admin group. Shared CSS is served locally at `/assets/p2-theme.css` without requiring a Cloud service.
+
 A small Node.js wiki. Pages are ordinary Markdown files, reading can be public or private, and pages can be managed through the browser or an authenticated HTTP API. Includes search, heading outlines, raw Markdown export, read/write/admin keys, and conditional writes to prevent accidental overwrites.
 
 ![Private wiki with project navigation](docs/projects-preview.jpg)

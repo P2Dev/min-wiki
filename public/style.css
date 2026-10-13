@@ -1,3 +1,5 @@
+@import url('/assets/p2-theme.css');
+
 :root {
   --paper:#fff;
   --canvas:#f7f8fa;
@@ -8,7 +10,7 @@
   --line:#dce2ea;
   --control:#7c8999;
   --code:#f3f5f8;
-  font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  font-family:var(--p2-font-ui);
   color:var(--text);
   background:var(--paper);
   font-synthesis:none;

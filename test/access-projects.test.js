@@ -66,6 +66,9 @@ test('private mode closes every content route, including metadata and aliases', 
   }
   assert.equal((await request('/health')).status, 200);
   assert.equal((await request('/assets/style.css')).status, 200);
+  const sharedTheme = await request('/assets/p2-theme.css');
+  assert.equal(sharedTheme.status, 200);
+  assert.match(sharedTheme.text, /--p2-font-ui/);
   const icon = await request('/favicon.ico');
   assert.equal(icon.status, 204); assert.equal(icon.headers.get('set-cookie'), null);
   const login = await request('/auth/login'); assert.equal(login.status, 200); assert.ok(!login.text.includes('Confidential title'));
