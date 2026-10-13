@@ -1,6 +1,8 @@
 export function readConfig(env = process.env) {
   const visibility = env.WIKI_VISIBILITY || 'public';
   if (!['public', 'private'].includes(visibility)) throw new Error('WIKI_VISIBILITY must be public or private.');
+  const theme = env.WIKI_THEME || 'standalone';
+  if (!['standalone', 'cloud'].includes(theme)) throw new Error('WIKI_THEME must be standalone or cloud.');
   const origin = new URL(env.PUBLIC_URL || `http://127.0.0.1:${env.PORT || 3000}`);
   if (origin.username || origin.password || origin.search || origin.hash || origin.pathname !== '/') throw new Error('PUBLIC_URL must be an origin without credentials, path, query or fragment.');
   if (origin.protocol !== 'https:' && !(origin.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname))) throw new Error('PUBLIC_URL requires HTTPS except for local development.');
@@ -14,5 +16,5 @@ export function readConfig(env = process.env) {
     if (domain.protocol !== 'https:' || domain.pathname !== '/' || domain.search || domain.hash || domain.username || domain.password) throw new Error('COGNITO_DOMAIN must be an HTTPS origin.');
     cognito = { userPoolId: env.COGNITO_USER_POOL_ID, clientId: env.COGNITO_CLIENT_ID, domain: domain.origin, clientSecret: env.COGNITO_CLIENT_SECRET || '', adminGroup: env.COGNITO_ADMIN_GROUP || '' };
   }
-  return { visibility, publicUrl: origin.origin, secureCookies: origin.protocol === 'https:', cognito };
+  return { visibility, theme, publicUrl: origin.origin, secureCookies: origin.protocol === 'https:', cognito };
 }

@@ -24,9 +24,9 @@ function jwt(changes = {}, key = pair.privateKey) {
 const field = (html, name) => html.match(new RegExp(`name="${name}" value="([^"]*)"`))?.[1].replaceAll('&quot;', '"').replaceAll('&amp;', '&');
 const responseCookie = (response, name) => response.headers.getSetCookie().find(value => value.startsWith(`${name}=`))?.split(';')[0];
 
-async function fixture(t, { cognito = false, visibility = 'private', publicUrl = 'http://127.0.0.1:3000', dependencies = {} } = {}) {
+async function fixture(t, { cognito = false, visibility = 'private', theme = 'standalone', publicUrl = 'http://127.0.0.1:3000', dependencies = {} } = {}) {
   const directory = await mkdtemp(path.join(tmpdir(), 'min-wiki-access-'));
-  const config = readConfig({ WIKI_VISIBILITY: visibility, PUBLIC_URL: publicUrl, ...(cognito ? { COGNITO_USER_POOL_ID: pool, COGNITO_CLIENT_ID: clientId, COGNITO_DOMAIN: 'https://test.auth.us-east-1.amazoncognito.com', COGNITO_ADMIN_GROUP: 'wiki-admins' } : {}) });
+  const config = readConfig({ WIKI_VISIBILITY: visibility, WIKI_THEME: theme, PUBLIC_URL: publicUrl, ...(cognito ? { COGNITO_USER_POOL_ID: pool, COGNITO_CLIENT_ID: clientId, COGNITO_DOMAIN: 'https://test.auth.us-east-1.amazoncognito.com', COGNITO_ADMIN_GROUP: 'wiki-admins' } : {}) });
   const verifier = cognito ? createCognitoVerifier(config.cognito) : null;
   verifier?.cacheJwks({ keys: [jwk] });
   const errors = [];
@@ -73,6 +73,17 @@ test('private mode closes every content route, including metadata and aliases', 
   assert.equal(icon.status, 204); assert.equal(icon.headers.get('set-cookie'), null);
   const login = await request('/auth/login'); assert.equal(login.status, 200); assert.ok(!login.text.includes('Confidential title'));
   assert.equal(login.headers.get('referrer-policy'), 'same-origin');
+});
+
+test('Cloud palette applies to login and content without changing standalone defaults', async t => {
+  assert.throws(() => readConfig({ WIKI_THEME: 'unknown' }), /WIKI_THEME/);
+  const standalone = await fixture(t);
+  assert.doesNotMatch((await standalone.request('/auth/login')).text, /data-p2-theme=/);
+  const cloud = await fixture(t, { theme: 'cloud' });
+  assert.match((await cloud.request('/auth/login')).text, /<html lang="en" data-p2-theme="cloud">/);
+  const { cookie } = await cloud.login();
+  assert.match((await cloud.request('/', { cookie })).text, /<html lang="en" data-p2-theme="cloud">/);
+  assert.match((await cloud.request('/assets/p2-theme.css')).text, /--p2-cloud-primary: #286c50/);
 });
 
 test('read keys read every project, cannot write or administer, and invalid credentials do not fall back', async t => {
