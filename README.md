@@ -2,6 +2,8 @@
 
 The pinned `@p2dev/common` package supplies Cognito group-role helpers and neutral theme tokens. Standalone Wiki still works with its own access keys and can run without Cognito; each deployment chooses its own pool and optional admin group. Shared CSS is served locally at `/assets/p2-theme.css` without requiring a Cloud service.
 
+Set `WIKI_THEME=cloud` to use the shared P2.Dev Cloud colors. The default `standalone` value retains the original blue palette for independent installations.
+
 A small Node.js wiki. Pages are ordinary Markdown files, reading can be public or private, and pages can be managed through the browser or an authenticated HTTP API. Includes search, heading outlines, raw Markdown export, read/write/admin keys, and conditional writes to prevent accidental overwrites.
 
 ![Private wiki with project navigation](docs/projects-preview.jpg)
@@ -51,6 +53,7 @@ npm run dev
 | `HOST` | `127.0.0.1` | Listening interface |
 | `PORT` | `3000` | HTTP port |
 | `WIKI_VISIBILITY` | `public` | `public` or `private` for all projects and content routes |
+| `WIKI_THEME` | `standalone` | `standalone` or `cloud` color palette |
 | `PUBLIC_URL` | `http://127.0.0.1:3000` (uses `PORT`) | External origin; set explicitly for Cognito/proxy deployments |
 | `COGNITO_USER_POOL_ID` | Unset | Existing Cognito User Pool ID |
 | `COGNITO_CLIENT_ID` | Unset | Allowed app-client ID |

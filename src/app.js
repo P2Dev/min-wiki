@@ -161,7 +161,7 @@ export async function createApp({ dataDir = process.env.DATA_DIR || path.join(ro
 
   async function show(request, response, view, project = 'default') {
     const projectInfo = await store.project(project);
-    response.type('html').send(layout({ pages: await allPages(project), projects: await store.projects(), project: projectInfo, identity: request.identity, csrf: request.webSession?.csrf, visibility: config.visibility, ...view }));
+    response.type('html').send(layout({ pages: await allPages(project), projects: await store.projects(), project: projectInfo, identity: request.identity, csrf: request.webSession?.csrf, visibility: config.visibility, theme: config.theme, ...view }));
   }
   async function index(request, response) {
     const project = request.params.project || 'default';
@@ -247,7 +247,7 @@ export async function createApp({ dataDir = process.env.DATA_DIR || path.join(ro
     else if (!(error instanceof Problem)) { onError(error); problem = new Problem(500, 'internal_error', 'The request could not be completed. Please try again.'); }
     response.status(problem.status);
     if (/^\/api(?:\/|$)/i.test(request.path)) return response.json({ error: { code: problem.code, message: problem.message } });
-    response.type('html').send(layout({ title: problem.status === 404 ? 'Page not found' : 'Request could not be completed', pages: [], visibility: config.visibility, content: `<div class="breadcrumb"><a href="/">Library</a><span>/</span>${problem.status}</div><header class="article-header"><p class="eyebrow">${problem.status}</p><h1>${problem.status === 404 ? 'This page is missing.' : 'Request could not be completed.'}</h1><p class="lead">${escape(problem.message)}</p><a class="button-link" href="/auth/login">Sign in →</a><br><a class="button-link" href="/">Return to the wiki →</a></header>` }));
+    response.type('html').send(layout({ title: problem.status === 404 ? 'Page not found' : 'Request could not be completed', pages: [], visibility: config.visibility, theme: config.theme, content: `<div class="breadcrumb"><a href="/">Library</a><span>/</span>${problem.status}</div><header class="article-header"><p class="eyebrow">${problem.status}</p><h1>${problem.status === 404 ? 'This page is missing.' : 'Request could not be completed.'}</h1><p class="lead">${escape(problem.message)}</p><a class="button-link" href="/auth/login">Sign in →</a><br><a class="button-link" href="/">Return to the wiki →</a></header>` }));
   });
   return app;
 }
